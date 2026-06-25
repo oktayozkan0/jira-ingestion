@@ -1,6 +1,7 @@
 from ingestion.atlassian.client._atlassian import Atlassian
 from ingestion.atlassian.jira._boards import Boards
 from ingestion.atlassian.jira._issues import Issues
+from ingestion.atlassian.jira._metadata import Metadata
 from ingestion.atlassian.jira._projects import Projects
 from ingestion.atlassian.jira._sprints import Sprints
 from ingestion.atlassian.jira._users import Users
@@ -11,6 +12,10 @@ class Jira(Atlassian):
     @property
     def issues(self) -> Issues:
         return Issues(self)
+
+    @property
+    def metadata(self) -> Metadata:
+        return Metadata(self)
 
     @property
     def worklogs(self) -> Worklogs:
