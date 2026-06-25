@@ -69,7 +69,7 @@ class HttpxRequest(BaseRequest):
             return
         await self._client.aclose()
 
-    async def do_request(
+    async def do_request(  # type: ignore[override]
             self,
             method: str,
             path: str,

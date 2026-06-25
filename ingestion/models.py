@@ -46,7 +46,7 @@ class TrackedJiraTeam(Model):
     tracking_start_date = fields.DateField(null=True)
     description = fields.CharField(max_length=500, null=True)
 
-    class Meta:
+    class Meta:  # type: ignore
         table = "tracked_jira_teams"
 
 
@@ -65,7 +65,7 @@ class JiraUser(Model):
     last_seen_at = fields.DatetimeField(null=True)
     raw_payload = fields.JSONField(null=True)
 
-    class Meta:
+    class Meta:  # type: ignore
         table = "jira_users"
 
 
@@ -76,7 +76,7 @@ class JiraIssueType(Model):
     is_subtask = fields.BooleanField(default=False)
     icon_url = fields.CharField(max_length=500, null=True)
 
-    class Meta:
+    class Meta:  # type: ignore
         table = "jira_issue_types"
 
 
@@ -87,7 +87,7 @@ class JiraStatus(Model):
     status_category_key = fields.CharField(max_length=32)
     status_category_name = fields.CharField(max_length=64, null=True)
 
-    class Meta:
+    class Meta:  # type: ignore
         table = "jira_statuses"
 
 
@@ -97,7 +97,7 @@ class JiraPriority(Model):
     name = fields.CharField(max_length=64)
     icon_url = fields.CharField(max_length=500, null=True)
 
-    class Meta:
+    class Meta:  # type: ignore
         table = "jira_priorities"
 
 
@@ -113,7 +113,7 @@ class JiraBoard(Model):
     is_deleted = fields.BooleanField(default=False)
     deleted_at = fields.DatetimeField(null=True)
 
-    class Meta:
+    class Meta:  # type: ignore
         table = "jira_boards"
 
 
@@ -131,7 +131,7 @@ class JiraSprint(Model):
     is_deleted = fields.BooleanField(default=False)
     deleted_at = fields.DatetimeField(null=True)
 
-    class Meta:
+    class Meta:  # type: ignore
         table = "jira_sprints"
 
 
@@ -162,7 +162,7 @@ class JiraIssue(Model):
     is_deleted = fields.BooleanField(default=False)
     deleted_at = fields.DatetimeField(null=True)
 
-    class Meta:
+    class Meta:  # type: ignore
         table = "jira_issues"
 
 
@@ -178,7 +178,7 @@ class JiraSprintIssue(Model):
     story_points_at_addition = fields.FloatField(null=True)
     story_points_at_removal = fields.FloatField(null=True)
 
-    class Meta:
+    class Meta:  # type: ignore
         table = "jira_sprint_issues"
 
 
@@ -197,7 +197,7 @@ class JiraIssueFieldChange(Model):
     changed_by_id = fields.IntField(null=True)
     source_sync_run_id = fields.IntField(null=True)
 
-    class Meta:
+    class Meta:  # type: ignore
         table = "jira_issue_field_changes"
         unique_together = (("issue_id", "jira_changelog_id", "field_name"),)
 
@@ -222,7 +222,7 @@ class JiraSyncRun(Model):
     records_failed = fields.IntField(default=0)
     error_message = fields.TextField(null=True)
 
-    class Meta:
+    class Meta:  # type: ignore
         table = "jira_sync_runs"
 
 
@@ -237,6 +237,6 @@ class JiraSyncState(Model):
     last_run_id = fields.IntField(null=True)
     error_message = fields.TextField(null=True)
 
-    class Meta:
+    class Meta:  # type: ignore
         table = "jira_sync_state"
         unique_together = (("team_id", "entity_type"),)

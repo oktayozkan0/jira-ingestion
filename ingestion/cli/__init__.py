@@ -24,7 +24,7 @@ def discover_commands():
         module = importlib.import_module(f"ingestion.cli.commands.{module_name}")
         for attr_name in dir(module):
             attr = getattr(module, attr_name)
-            if isinstance(attr, click.BaseCommand) and attr is not cli:
+            if isinstance(attr, click.Command) and attr is not cli:
                 cli.add_command(attr)
 
 
