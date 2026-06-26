@@ -19,18 +19,27 @@ async def upsert(
     *,
     natural_key: dict[str, Any],
     values: dict[str, Any],
+    create_only: dict[str, Any] | None = None,
     counters: SyncCounters | None = None,
 ) -> tuple[Model, bool]:
     """Create or update ``model`` identified by ``natural_key``.
 
+    ``values`` are compared against the stored row and written back only when
+    something differs. ``create_only`` fields are written on insert but never
+    compared or updated afterwards — use them for provenance such as
+    ``source_sync_run_id`` that would otherwise flag every row as changed each
+    run merely because the run id moved.
+
     Returns ``(instance, created)``. When ``counters`` is provided, ``created``
-    is incremented on insert and ``updated`` only when at least one field
-    differed from the stored row.
+    is incremented on insert and ``updated`` only when at least one ``values``
+    field differed from the stored row.
     """
     instance = await model.get_or_none(**natural_key)
 
     if instance is None:
-        instance = await model.create(**natural_key, **values)
+        instance = await model.create(
+            **natural_key, **values, **(create_only or {})
+        )
         if counters is not None:
             counters.add(created=1)
         return instance, True

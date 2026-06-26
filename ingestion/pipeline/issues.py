@@ -1,4 +1,4 @@
-"""Issue ingestion (JQL search -> ``jira_issues``).
+"""Issue ingestion (JQL search -> ``jira_issues`` + changelog + links).
 
 Issues are pulled per team with a ``project = <key>`` JQL query, narrowed by an
 ``updated >=`` lower bound and ordered oldest-first so the watermark can advance
@@ -9,11 +9,12 @@ to the newest ``updated`` seen. Two modes share the path:
 * **backfill** ignores the watermark and works from the team's
   ``tracking_start_date`` (or the global default start date).
 
-Embedded issue-type / status / priority objects and assignee / reporter /
-creator users are resolved on the fly. The watermark is advanced only after the
-fetch loop completes without raising, so a failure mid-run is retried from the
-same point. Parent/epic links, changelog and sprint membership are handled
-separately.
+Per issue we also ingest the changelog (``expand=changelog``, falling back to
+the paginated endpoint when truncated) into ``jira_issue_field_changes``. Parent
+and epic links are applied in a second pass once every issue in the batch
+exists, so forward references within a run resolve correctly. The watermark is
+advanced only after the fetch loop completes without raising. Sprint membership
+is handled separately.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from ingestion.atlassian.jira import jql
 from ingestion.config import settings
 from ingestion.enums import JiraSyncEntityType, JiraSyncRunStatus, JiraSyncTrigger
-from ingestion.models import JiraIssue, TrackedJiraTeam
+from ingestion.models import JiraIssue, JiraIssueFieldChange, TrackedJiraTeam
 from ingestion.pipeline.parsing import parse_jira_date, parse_jira_datetime
 from ingestion.pipeline.references import (
     resolve_issue_type,
@@ -45,6 +46,10 @@ logger = logging.getLogger(__name__)
 
 IngestMode = Literal["incremental", "backfill"]
 
+# A (child issue id, parent issue id, epic issue key) reference collected during
+# the fetch loop and resolved into FK ids afterwards.
+LinkRef = tuple[str, str | None, str | None]
+
 
 def resolve_account_timezone(name: str | None) -> tzinfo:
     """Timezone JQL date literals are evaluated in (the searching account's tz)."""
@@ -58,7 +63,7 @@ def resolve_account_timezone(name: str | None) -> tzinfo:
 
 
 def _issue_fields() -> list[str]:
-    return [
+    fields = [
         "summary",
         "issuetype",
         "status",
@@ -71,8 +76,12 @@ def _issue_fields() -> list[str]:
         "duedate",
         "created",
         "updated",
+        "parent",
         settings.jira_story_points_field,
     ]
+    if settings.jira_epic_link_field:
+        fields.append(settings.jira_epic_link_field)
+    return fields
 
 
 def _to_float(value: Any) -> float | None:
@@ -112,13 +121,30 @@ def _build_issue_jql(project_key: str, since: datetime | None, tz: tzinfo) -> st
     return " AND ".join(clauses) + " ORDER BY updated ASC"
 
 
+def _parent_ref(issue: dict[str, Any]) -> str | None:
+    parent = (issue.get("fields") or {}).get("parent") or {}
+    pid = parent.get("id")
+    return str(pid) if pid is not None else None
+
+
+def _epic_ref(issue: dict[str, Any]) -> str | None:
+    field = settings.jira_epic_link_field
+    if not field:
+        return None
+    value = (issue.get("fields") or {}).get(field)
+    if isinstance(value, str):
+        return value or None
+    if isinstance(value, dict):
+        return value.get("key")
+    return None
+
+
 async def _upsert_issue(
     team: TrackedJiraTeam, issue: dict[str, Any], counters: SyncCounters
-) -> datetime | None:
-    """Upsert one issue's core row; return its ``updated`` time for the watermark."""
+) -> JiraIssue:
+    """Upsert one issue's core row and return it (so callers have its id)."""
     fields = issue.get("fields") or {}
     resolution = fields.get("resolution") or {}
-    updated = parse_jira_datetime(fields.get("updated"))
 
     values = {
         "team_id": team.id,
@@ -135,15 +161,86 @@ async def _upsert_issue(
         "resolved_at": parse_jira_datetime(fields.get("resolutiondate")),
         "due_date": parse_jira_date(fields.get("duedate")),
         "jira_created_at": parse_jira_datetime(fields.get("created")),
-        "jira_updated_at": updated,
+        "jira_updated_at": parse_jira_datetime(fields.get("updated")),
     }
-    await upsert(
+    row, _ = await upsert(
         JiraIssue,
         natural_key={"jira_issue_id": str(issue["id"])},
         values=values,
         counters=counters,
     )
-    return updated
+    return row
+
+
+async def _ingest_changelog(
+    jira: "Jira",
+    issue: dict[str, Any],
+    issue_row_id: int,
+    run_id: int | None,
+    counters: SyncCounters,
+) -> None:
+    """Upsert an issue's changelog field changes (idempotent per history item)."""
+    changelog = issue.get("changelog") or {}
+    histories = changelog.get("histories") or []
+    total = changelog.get("total")
+    if total is not None and total > len(histories):
+        # Embedded changelog was truncated; pull the complete history.
+        histories = [h async for h in jira.issues.iter_changelog(str(issue["id"]))]
+
+    for history in histories:
+        changed_at = parse_jira_datetime(history.get("created"))
+        author = await resolve_user(history.get("author"))
+        changelog_id = (
+            str(history["id"]) if history.get("id") is not None else None
+        )
+        for item in history.get("items") or []:
+            await upsert(
+                JiraIssueFieldChange,
+                natural_key={
+                    "issue_id": issue_row_id,
+                    "jira_changelog_id": changelog_id,
+                    "field_name": item.get("field") or "",
+                },
+                values={
+                    "field_id": item.get("fieldId"),
+                    "field_type": item.get("fieldtype"),
+                    "from_value": item.get("fromString"),
+                    "from_value_id": item.get("from"),
+                    "to_value": item.get("toString"),
+                    "to_value_id": item.get("to"),
+                    "changed_at": changed_at,
+                    "changed_by_id": _id_of(author),
+                },
+                create_only={"source_sync_run_id": run_id},
+                counters=counters,
+            )
+
+
+async def _apply_links(links: list[LinkRef]) -> None:
+    """Resolve collected parent/epic references to FK ids after the batch lands.
+
+    Runs once every issue in the batch exists, so same-run forward references
+    resolve. Unresolvable references (target not yet ingested) are left for a
+    later run. Only genuine changes are written.
+    """
+    for child_jid, parent_jid, epic_key in links:
+        if parent_jid is None and epic_key is None:
+            continue
+        child = await JiraIssue.get_or_none(jira_issue_id=child_jid)
+        if child is None:
+            continue
+
+        updates: dict[str, Any] = {}
+        if parent_jid is not None:
+            parent = await JiraIssue.get_or_none(jira_issue_id=parent_jid)
+            if parent is not None and child.parent_issue_id != parent.id:
+                updates["parent_issue_id"] = parent.id
+        if epic_key is not None:
+            epic = await JiraIssue.get_or_none(issue_key=epic_key)
+            if epic is not None and child.epic_issue_id != epic.id:
+                updates["epic_issue_id"] = epic.id
+        if updates:
+            await JiraIssue.filter(id=child.id).update(**updates)
 
 
 async def ingest_issues_for_team(
@@ -170,13 +267,22 @@ async def ingest_issues_for_team(
     ) as ctx:
         logger.info("issue sync | team=%s mode=%s jql=%s", team.key, mode, query)
         max_updated: datetime | None = None
+        links: list[LinkRef] = []
         async for issue in jira.issues.iter_search(
-            query, page_size=settings.jira_page_size, fields=_issue_fields()
+            query,
+            page_size=settings.jira_page_size,
+            fields=_issue_fields(),
+            expand="changelog",
         ):
             ctx.counters.add(fetched=1)
-            updated = await _upsert_issue(team, issue, ctx.counters)
+            row = await _upsert_issue(team, issue, ctx.counters)
+            await _ingest_changelog(jira, issue, row.id, ctx.run.id, ctx.counters)
+            links.append((str(issue["id"]), _parent_ref(issue), _epic_ref(issue)))
+            updated = row.jira_updated_at
             if updated is not None and (max_updated is None or updated > max_updated):
                 max_updated = updated
+
+        await _apply_links(links)
 
         # Advance the watermark only after a clean pass over every page.
         status = (

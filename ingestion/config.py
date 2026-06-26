@@ -45,6 +45,9 @@ class AppSettings(BaseSettings):
     jira_email: str
     jira_api_token: str
     jira_story_points_field: str = "customfield_10038"
+    # Custom field holding the Epic Link (epic issue key) in classic projects.
+    # Leave unset to skip epic linking (e.g. team-managed projects use parent).
+    jira_epic_link_field: str | None = None
 
     # --- Jira client tuning -------------------------------------------------
     jira_page_size: int = 100

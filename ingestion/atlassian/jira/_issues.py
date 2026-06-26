@@ -79,6 +79,43 @@ class Issues:
             if not token or not issues:
                 return
 
+    async def changelog(
+            self,
+            issue_id_or_key: str,
+            *,
+            start_at: int = 0,
+            max_results: int = 100,
+    ) -> dict[str, Any]:
+        """A page of an issue's full changelog (`/rest/api/3/issue/{key}/changelog`)."""
+        return await self.jira._get(
+            f"/rest/api/3/issue/{issue_id_or_key}/changelog",
+            params={"startAt": start_at, "maxResults": max_results},
+        )
+
+    async def iter_changelog(
+            self,
+            issue_id_or_key: str,
+            *,
+            page_size: int = 100,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Stream every changelog history for an issue, oldest first.
+
+        Used when an issue's embedded `expand=changelog` is truncated (its
+        history exceeds the inline limit).
+        """
+        start_at = 0
+        while True:
+            page = await self.changelog(
+                issue_id_or_key, start_at=start_at, max_results=page_size
+            )
+            values = page.get("values") or []
+            for history in values:
+                yield history
+            total = page.get("total")
+            start_at += len(values)
+            if not values or (total is not None and start_at >= total):
+                return
+
 
 def _csv(value: Iterable[str] | str) -> str:
     if isinstance(value, str):
