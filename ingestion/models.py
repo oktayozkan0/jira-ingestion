@@ -63,7 +63,7 @@ class JiraUser(Model):
     avatar_url = fields.CharField(max_length=500, null=True)
     first_seen_at = fields.DatetimeField(null=True)
     last_seen_at = fields.DatetimeField(null=True)
-    raw_payload: dict | None = fields.JSONField(null=True)
+    raw_payload = fields.JSONField(null=True)
 
     class Meta:  # type: ignore
         table = "jira_users"
@@ -220,7 +220,7 @@ class JiraSyncRun(Model):
     records_updated = fields.IntField(default=0)
     records_deleted = fields.IntField(default=0)
     records_failed = fields.IntField(default=0)
-    error_message: str | None = fields.TextField(null=True)
+    error_message = fields.TextField(null=True)
 
     class Meta:  # type: ignore
         table = "jira_sync_runs"
@@ -235,7 +235,7 @@ class JiraSyncState(Model):
     last_cursor = fields.CharField(max_length=500, null=True)
     last_run_status = fields.CharEnumField(JiraSyncRunStatus, null=True)
     last_run_id = fields.IntField(null=True)
-    error_message: str | None = fields.TextField(null=True)
+    error_message = fields.TextField(null=True)
 
     class Meta:  # type: ignore
         table = "jira_sync_state"
