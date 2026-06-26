@@ -117,9 +117,10 @@ class Worklogs:
                     yield int(wid)
             if page.get("lastPage", True):
                 return
-            cursor = page.get("until")
-            if cursor is None:
+            until = page.get("until")
+            if until is None:
                 return
+            cursor = until
 
     async def iter_deleted_ids(self, since: datetime | int) -> AsyncIterator[int]:
         cursor = _to_epoch_millis(since)
@@ -132,9 +133,10 @@ class Worklogs:
                     yield int(wid)
             if page.get("lastPage", True):
                 return
-            cursor = page.get("until")
-            if cursor is None:
+            until = page.get("until")
+            if until is None:
                 return
+            cursor = until
 
     async def get_many(
             self,

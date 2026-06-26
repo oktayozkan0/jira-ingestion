@@ -20,7 +20,7 @@ from datetime import date
 from functools import lru_cache
 from urllib.parse import parse_qs, unquote, urlparse
 
-from pydantic import computed_field, model_validator
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_ODBC_DRIVER = "ODBC Driver 18 for SQL Server"
@@ -71,7 +71,6 @@ class AppSettings(BaseSettings):
             )
         return self
 
-    @computed_field
     @property
     def tortoise_credentials(self) -> dict:
         """Credentials dict for ``tortoise.backends.mssql``."""

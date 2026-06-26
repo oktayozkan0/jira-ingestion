@@ -7,11 +7,12 @@ date instead.
 """
 
 from datetime import datetime
+from typing import Any
 
 from ingestion.enums import JiraSyncEntityType, JiraSyncRunStatus
 from ingestion.models import JiraSyncState
 
-_UNSET: object = object()
+_UNSET: Any = object()
 
 
 class SyncStateRepository:
@@ -34,12 +35,12 @@ class SyncStateRepository:
         team_id: int,
         entity_type: JiraSyncEntityType,
         *,
-        last_synced_at: datetime | None | object = _UNSET,
-        last_entity_updated_at: datetime | None | object = _UNSET,
-        last_cursor: str | None | object = _UNSET,
-        last_run_status: JiraSyncRunStatus | None | object = _UNSET,
-        last_run_id: int | None | object = _UNSET,
-        error_message: str | None | object = _UNSET,
+        last_synced_at: datetime | None = _UNSET,
+        last_entity_updated_at: datetime | None = _UNSET,
+        last_cursor: str | None = _UNSET,
+        last_run_status: JiraSyncRunStatus | None = _UNSET,
+        last_run_id: int | None = _UNSET,
+        error_message: str | None = _UNSET,
     ) -> JiraSyncState:
         """Create or merge the watermark row.
 
@@ -47,7 +48,7 @@ class SyncStateRepository:
         left untouched, so advancing ``last_synced_at`` never accidentally clears
         an existing ``last_entity_updated_at`` watermark.
         """
-        candidate = {
+        candidate: dict[str, Any] = {
             "last_synced_at": last_synced_at,
             "last_entity_updated_at": last_entity_updated_at,
             "last_cursor": last_cursor,

@@ -7,21 +7,23 @@ that actually changed — so re-running ingestion is idempotent and the
 ``updated`` counter reflects real changes rather than every row seen.
 """
 
-from typing import Any
+from typing import Any, TypeVar
 
 from tortoise.models import Model
 
 from ingestion.sync.counters import SyncCounters
 
+ModelT = TypeVar("ModelT", bound=Model)
+
 
 async def upsert(
-    model: type[Model],
+    model: type[ModelT],
     *,
     natural_key: dict[str, Any],
     values: dict[str, Any],
     create_only: dict[str, Any] | None = None,
     counters: SyncCounters | None = None,
-) -> tuple[Model, bool]:
+) -> tuple[ModelT, bool]:
     """Create or update ``model`` identified by ``natural_key``.
 
     ``values`` are compared against the stored row and written back only when
