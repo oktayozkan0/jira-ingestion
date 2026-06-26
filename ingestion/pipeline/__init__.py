@@ -8,6 +8,7 @@ from ingestion.pipeline.issues import (
     ingest_issues_for_team,
     resolve_account_timezone,
 )
+from ingestion.pipeline.membership import ingest_sprint_membership
 from ingestion.pipeline.parsing import parse_jira_date, parse_jira_datetime
 from ingestion.pipeline.references import (
     resolve_issue_type,
@@ -33,4 +34,5 @@ __all__ = [
     "ingest_boards_for_team",
     "ingest_sprints_for_team",
     "ingest_issues_for_team",
+    "ingest_sprint_membership",
 ]

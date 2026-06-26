@@ -28,6 +28,7 @@ from ingestion.atlassian.jira import jql
 from ingestion.config import settings
 from ingestion.enums import JiraSyncEntityType, JiraSyncRunStatus, JiraSyncTrigger
 from ingestion.models import JiraIssue, JiraIssueFieldChange, TrackedJiraTeam
+from ingestion.pipeline.membership import ingest_sprint_membership
 from ingestion.pipeline.parsing import parse_jira_date, parse_jira_datetime
 from ingestion.pipeline.references import (
     resolve_issue_type,
@@ -78,6 +79,7 @@ def _issue_fields() -> list[str]:
         "updated",
         "parent",
         settings.jira_story_points_field,
+        settings.jira_sprint_field,
     ]
     if settings.jira_epic_link_field:
         fields.append(settings.jira_epic_link_field)
@@ -172,21 +174,28 @@ async def _upsert_issue(
     return row
 
 
-async def _ingest_changelog(
-    jira: "Jira",
-    issue: dict[str, Any],
-    issue_row_id: int,
-    run_id: int | None,
-    counters: SyncCounters,
-) -> None:
-    """Upsert an issue's changelog field changes (idempotent per history item)."""
+async def _load_histories(
+    jira: "Jira", issue: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """An issue's changelog histories, fetching the full set when truncated.
+
+    Loaded once and shared by changelog and sprint-membership ingestion.
+    """
     changelog = issue.get("changelog") or {}
     histories = changelog.get("histories") or []
     total = changelog.get("total")
     if total is not None and total > len(histories):
-        # Embedded changelog was truncated; pull the complete history.
         histories = [h async for h in jira.issues.iter_changelog(str(issue["id"]))]
+    return histories
 
+
+async def _ingest_changelog(
+    issue_row_id: int,
+    run_id: int | None,
+    counters: SyncCounters,
+    histories: list[dict[str, Any]],
+) -> None:
+    """Upsert an issue's changelog field changes (idempotent per history item)."""
     for history in histories:
         changed_at = parse_jira_datetime(history.get("created"))
         author = await resolve_user(history.get("author"))
@@ -276,7 +285,9 @@ async def ingest_issues_for_team(
         ):
             ctx.counters.add(fetched=1)
             row = await _upsert_issue(team, issue, ctx.counters)
-            await _ingest_changelog(jira, issue, row.id, ctx.run.id, ctx.counters)
+            histories = await _load_histories(jira, issue)
+            await _ingest_changelog(row.id, ctx.run.id, ctx.counters, histories)
+            await ingest_sprint_membership(issue, row, histories, ctx.counters)
             links.append((str(issue["id"]), _parent_ref(issue), _epic_ref(issue)))
             updated = row.jira_updated_at
             if updated is not None and (max_updated is None or updated > max_updated):

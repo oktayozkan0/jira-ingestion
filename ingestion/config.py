@@ -48,6 +48,10 @@ class AppSettings(BaseSettings):
     # Custom field holding the Epic Link (epic issue key) in classic projects.
     # Leave unset to skip epic linking (e.g. team-managed projects use parent).
     jira_epic_link_field: str | None = None
+    # Custom field holding the issue's sprint membership array (Jira Cloud
+    # default is customfield_10020). Used to capture sprints an issue has
+    # belonged to since creation, alongside the Sprint changelog transitions.
+    jira_sprint_field: str = "customfield_10020"
 
     # --- Jira client tuning -------------------------------------------------
     jira_page_size: int = 100
