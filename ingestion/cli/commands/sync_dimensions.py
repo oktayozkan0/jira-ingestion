@@ -17,11 +17,13 @@ from ingestion.pipeline import (
     ingest_priorities,
     ingest_statuses,
 )
+from ingestion.pipeline.dedupe import reset_dedupe
 
 logger = get_logger(__name__)
 
 
 async def _run() -> None:
+    reset_dedupe()
     async with lifespan(), build_jira() as jira:
         await ingest_issue_types(jira)
         await ingest_statuses(jira)

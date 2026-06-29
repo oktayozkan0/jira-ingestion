@@ -30,6 +30,7 @@ from ingestion.pipeline import (
     ingest_statuses,
     resolve_account_timezone,
 )
+from ingestion.pipeline.dedupe import reset_dedupe
 
 if TYPE_CHECKING:
     from ingestion.atlassian.jira import Jira
@@ -94,6 +95,7 @@ async def run_ingestion(
     triggered_by: JiraSyncTrigger = JiraSyncTrigger.SCHEDULED,
 ) -> RunSummary:
     summary = RunSummary(mode=mode, started_at=datetime.now(timezone.utc))
+    reset_dedupe()  # fresh per-run resolution cache
 
     me = await jira.get_myself()
     tz = resolve_account_timezone(me.get("timeZone"))

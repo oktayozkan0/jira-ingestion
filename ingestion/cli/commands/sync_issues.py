@@ -14,11 +14,13 @@ from ingestion.jira_client import build_jira
 from ingestion.logging_setup import configure_logging, get_logger
 from ingestion.models import TrackedJiraTeam
 from ingestion.pipeline import ingest_issues_for_team, resolve_account_timezone
+from ingestion.pipeline.dedupe import reset_dedupe
 
 logger = get_logger(__name__)
 
 
 async def _run(team_key: str, backfill: bool) -> None:
+    reset_dedupe()
     async with lifespan(), build_jira() as jira:
         team = await TrackedJiraTeam.get_or_none(key=team_key)
         if team is None:

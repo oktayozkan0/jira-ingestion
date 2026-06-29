@@ -9,12 +9,15 @@ is 1:N with teams). Each team's boards are ingested under one ``BOARDS`` run.
 from __future__ import annotations
 
 import logging
+from functools import partial
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from ingestion.enums import JiraBoardType, JiraSyncEntityType, JiraSyncTrigger
 from ingestion.models import JiraBoard, TrackedJiraTeam
+from ingestion.pipeline.dedupe import once
 from ingestion.pipeline.upsert import upsert
 from ingestion.sync import sync_run
+from ingestion.sync.counters import SyncCounters
 
 if TYPE_CHECKING:
     from ingestion.atlassian.jira import Jira
@@ -42,6 +45,22 @@ async def _iter_team_boards(
         yield board
 
 
+async def _upsert_board(
+    team: TrackedJiraTeam, payload: dict[str, Any], counters: SyncCounters
+) -> JiraBoard:
+    board, _ = await upsert(
+        JiraBoard,
+        natural_key={"jira_board_id": int(payload["id"])},
+        values={
+            "team_id": team.id,
+            "name": payload.get("name") or "",
+            "board_type": _board_type(payload.get("type")),
+        },
+        counters=counters,
+    )
+    return board
+
+
 async def ingest_boards_for_team(
     jira: "Jira",
     team: TrackedJiraTeam,
@@ -58,15 +77,10 @@ async def ingest_boards_for_team(
     ) as ctx:
         async for payload in _iter_team_boards(jira, team):
             ctx.counters.add(fetched=1)
-            board, _ = await upsert(
-                JiraBoard,
-                natural_key={"jira_board_id": int(payload["id"])},
-                values={
-                    "team_id": team.id,
-                    "name": payload.get("name") or "",
-                    "board_type": _board_type(payload.get("type")),
-                },
-                counters=ctx.counters,
+            board = await once(
+                "boards",
+                int(payload["id"]),
+                partial(_upsert_board, team, payload, ctx.counters),
             )
             boards.append(board)
     return boards
