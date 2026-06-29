@@ -195,20 +195,30 @@ async def _ingest_changelog(
     counters: SyncCounters,
     histories: list[dict[str, Any]],
 ) -> None:
-    """Upsert an issue's changelog field changes (idempotent per history item)."""
+    """Upsert an issue's changelog field changes.
+
+    The unique key is (issue, changelog id, field), but a single history can
+    carry several items for the same field — e.g. multiple attachments or
+    labels changed in one action. Only one row can be stored per field per
+    history, so same-field items are collapsed (last item wins) before
+    upserting, which keeps a multi-item history from colliding with itself.
+    """
     for history in histories:
         changed_at = parse_jira_datetime(history.get("created"))
         author = await resolve_user(history.get("author"))
         changelog_id = (
             str(history["id"]) if history.get("id") is not None else None
         )
+        items_by_field: dict[str, dict[str, Any]] = {}
         for item in history.get("items") or []:
+            items_by_field[item.get("field") or ""] = item
+        for field_name, item in items_by_field.items():
             await upsert(
                 JiraIssueFieldChange,
                 natural_key={
                     "issue_id": issue_row_id,
                     "jira_changelog_id": changelog_id,
-                    "field_name": item.get("field") or "",
+                    "field_name": field_name,
                 },
                 values={
                     "field_id": item.get("fieldId"),
