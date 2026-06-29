@@ -22,11 +22,17 @@ CONNECTION_NAME = "default"
 
 
 def get_tortoise_config() -> dict:
+    # Pin the pool to a single connection. Ingestion is sequential, so there is
+    # no throughput cost, and it guarantees read-after-write consistency within a
+    # run: a row created earlier (e.g. by the upsert lookup-then-insert) is always
+    # visible to a later lookup, which a multi-connection pool did not guarantee
+    # and which caused duplicate-key inserts.
+    credentials = {**settings.tortoise_credentials, "minsize": 1, "maxsize": 1}
     return {
         "connections": {
             CONNECTION_NAME: {
                 "engine": "tortoise.backends.mssql",
-                "credentials": settings.tortoise_credentials,
+                "credentials": credentials,
             }
         },
         "apps": {

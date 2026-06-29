@@ -197,42 +197,50 @@ async def _ingest_changelog(
 ) -> None:
     """Upsert an issue's changelog field changes.
 
-    The unique key is (issue, changelog id, field), but a single history can
-    carry several items for the same field — e.g. multiple attachments or
-    labels changed in one action. Only one row can be stored per field per
-    history, so same-field items are collapsed (last item wins) before
-    upserting, which keeps a multi-item history from colliding with itself.
+    The table is unique on (issue, changelog id, field), but a single Jira
+    history can carry several items for the same field — e.g. multiple
+    attachments or labels changed in one action — and only one row can be stored
+    per (changelog, field). So collapse to one entry per (changelog id, field)
+    across the whole issue (last occurrence wins) before upserting; that way a
+    given unique key is written exactly once per run regardless of how the
+    history is shaped.
     """
+    collapsed: dict[
+        tuple[str | None, str], tuple[dict[str, Any], datetime | None, int | None]
+    ] = {}
     for history in histories:
         changed_at = parse_jira_datetime(history.get("created"))
-        author = await resolve_user(history.get("author"))
+        changed_by_id = _id_of(await resolve_user(history.get("author")))
         changelog_id = (
             str(history["id"]) if history.get("id") is not None else None
         )
-        items_by_field: dict[str, dict[str, Any]] = {}
         for item in history.get("items") or []:
-            items_by_field[item.get("field") or ""] = item
-        for field_name, item in items_by_field.items():
-            await upsert(
-                JiraIssueFieldChange,
-                natural_key={
-                    "issue_id": issue_row_id,
-                    "jira_changelog_id": changelog_id,
-                    "field_name": field_name,
-                },
-                values={
-                    "field_id": item.get("fieldId"),
-                    "field_type": item.get("fieldtype"),
-                    "from_value": item.get("fromString"),
-                    "from_value_id": item.get("from"),
-                    "to_value": item.get("toString"),
-                    "to_value_id": item.get("to"),
-                    "changed_at": changed_at,
-                    "changed_by_id": _id_of(author),
-                },
-                create_only={"source_sync_run_id": run_id},
-                counters=counters,
-            )
+            field_name = item.get("field") or ""
+            collapsed[(changelog_id, field_name)] = (item, changed_at, changed_by_id)
+
+    for (changelog_id, field_name), (item, changed_at, changed_by_id) in (
+        collapsed.items()
+    ):
+        await upsert(
+            JiraIssueFieldChange,
+            natural_key={
+                "issue_id": issue_row_id,
+                "jira_changelog_id": changelog_id,
+                "field_name": field_name,
+            },
+            values={
+                "field_id": item.get("fieldId"),
+                "field_type": item.get("fieldtype"),
+                "from_value": item.get("fromString"),
+                "from_value_id": item.get("from"),
+                "to_value": item.get("toString"),
+                "to_value_id": item.get("to"),
+                "changed_at": changed_at,
+                "changed_by_id": changed_by_id,
+            },
+            create_only={"source_sync_run_id": run_id},
+            counters=counters,
+        )
 
 
 async def _apply_links(links: list[LinkRef]) -> None:
