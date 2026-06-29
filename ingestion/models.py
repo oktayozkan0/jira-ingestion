@@ -63,7 +63,7 @@ class JiraUser(Model):
     avatar_url = fields.CharField(max_length=500, null=True)
     first_seen_at = fields.DatetimeField(null=True)
     last_seen_at = fields.DatetimeField(null=True)
-    raw_payload = fields.JSONField(null=True)
+    raw_payload = fields.JSONField(null=True)  # type: ignore[var-annotated]
 
     class Meta:  # type: ignore
         table = "jira_users"

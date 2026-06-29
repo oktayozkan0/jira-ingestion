@@ -55,7 +55,7 @@ class SyncRunRepository:
         run.records_updated = counters.updated
         run.records_deleted = counters.deleted
         run.records_failed = counters.failed
-        run.error_message = error_message
+        run.error_message = error_message  # type: ignore[assignment]
         await run.save()
         return run
 

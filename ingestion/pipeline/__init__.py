@@ -5,6 +5,7 @@ from ingestion.pipeline.dimensions import (
     ingest_statuses,
 )
 from ingestion.pipeline.issues import (
+    IngestMode,
     ingest_issues_for_team,
     resolve_account_timezone,
 )
@@ -20,6 +21,7 @@ from ingestion.pipeline.upsert import upsert
 from ingestion.pipeline.users import resolve_user
 
 __all__ = [
+    "IngestMode",
     "upsert",
     "resolve_user",
     "resolve_issue_type",
