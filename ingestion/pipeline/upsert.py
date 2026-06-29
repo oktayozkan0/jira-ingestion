@@ -70,3 +70,38 @@ async def upsert(
         if counters is not None:
             counters.add(updated=1)
     return instance, False
+
+
+def _is_unique_violation(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "unique" in message or "duplicate key" in message
+
+
+async def insert_or_ignore(
+    model: type[ModelT],
+    *,
+    natural_key: dict[str, Any],
+    values: dict[str, Any],
+    create_only: dict[str, Any] | None = None,
+    counters: SyncCounters | None = None,
+) -> bool:
+    """Insert a row for an immutable, append-only fact; ignore it if present.
+
+    Unlike :func:`upsert`, this never depends on the lookup succeeding. If the
+    natural key already exists but the lookup did not see it (a stale read on a
+    pooled connection), the insert's unique-constraint violation is caught and
+    treated as "already present" rather than crashing the run. Non-unique
+    integrity errors (FK, NOT NULL, ...) are re-raised. Returns True if a row
+    was inserted.
+    """
+    if await model.filter(**natural_key).exists():
+        return False
+    try:
+        await model.create(**natural_key, **values, **(create_only or {}))
+    except IntegrityError as exc:
+        if _is_unique_violation(exc):
+            return False
+        raise
+    if counters is not None:
+        counters.add(created=1)
+    return True

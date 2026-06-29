@@ -35,7 +35,7 @@ from ingestion.pipeline.references import (
     resolve_priority,
     resolve_status,
 )
-from ingestion.pipeline.upsert import upsert
+from ingestion.pipeline.upsert import insert_or_ignore, upsert
 from ingestion.pipeline.users import resolve_user
 from ingestion.sync import SyncStateRepository, sync_run
 from ingestion.sync.counters import SyncCounters
@@ -221,7 +221,9 @@ async def _ingest_changelog(
     for (changelog_id, field_name), (item, changed_at, changed_by_id) in (
         collapsed.items()
     ):
-        await upsert(
+        # Field changes are immutable history: insert if new, ignore if already
+        # present. This cannot collide on re-runs or stale reads.
+        await insert_or_ignore(
             JiraIssueFieldChange,
             natural_key={
                 "issue_id": issue_row_id,
