@@ -9,6 +9,7 @@ that actually changed — so re-running ingestion is idempotent and the
 
 from typing import Any, TypeVar
 
+from tortoise.exceptions import IntegrityError
 from tortoise.models import Model
 
 from ingestion.sync.counters import SyncCounters
@@ -32,6 +33,12 @@ async def upsert(
     ``source_sync_run_id`` that would otherwise flag every row as changed each
     run merely because the run id moved.
 
+    The lookup-then-insert is not atomic, so if the row appears between the two
+    (a different connection's committed insert the initial read missed, or the
+    same key reached twice in one run) the insert hits the unique constraint. We
+    catch that, re-fetch by the natural key, and fall through to the update path
+    — the same race-tolerant pattern the main app's ``get_or_create`` uses.
+
     Returns ``(instance, created)``. When ``counters`` is provided, ``created``
     is incremented on insert and ``updated`` only when at least one ``values``
     field differed from the stored row.
@@ -39,12 +46,19 @@ async def upsert(
     instance = await model.get_or_none(**natural_key)
 
     if instance is None:
-        instance = await model.create(
-            **natural_key, **values, **(create_only or {})
-        )
-        if counters is not None:
-            counters.add(created=1)
-        return instance, True
+        try:
+            instance = await model.create(
+                **natural_key, **values, **(create_only or {})
+            )
+        except IntegrityError:
+            instance = await model.get_or_none(**natural_key)
+            if instance is None:
+                # The conflict was on a different constraint, not this key.
+                raise
+        else:
+            if counters is not None:
+                counters.add(created=1)
+            return instance, True
 
     changed = False
     for field, value in values.items():
