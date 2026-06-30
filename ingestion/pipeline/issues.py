@@ -28,6 +28,16 @@ from ingestion.atlassian.jira import jql
 from ingestion.config import settings
 from ingestion.enums import JiraSyncEntityType, JiraSyncRunStatus, JiraSyncTrigger
 from ingestion.models import JiraIssue, JiraIssueFieldChange, TrackedJiraTeam
+from ingestion.pipeline.extras import (
+    IssueLinkRef,
+    apply_issue_links,
+    collect_issue_links,
+    ingest_attachments,
+    ingest_comments,
+    ingest_components,
+    ingest_labels,
+    ingest_worklogs,
+)
 from ingestion.pipeline.membership import ingest_sprint_membership
 from ingestion.pipeline.parsing import parse_jira_date, parse_jira_datetime
 from ingestion.pipeline.references import (
@@ -78,6 +88,12 @@ def _issue_fields() -> list[str]:
         "created",
         "updated",
         "parent",
+        "attachment",
+        "labels",
+        "components",
+        "issuelinks",
+        "comment",
+        "worklog",
         settings.jira_story_points_field,
         settings.jira_sprint_field,
     ]
@@ -143,8 +159,12 @@ def _epic_ref(issue: dict[str, Any]) -> str | None:
 
 async def _upsert_issue(
     team: TrackedJiraTeam, issue: dict[str, Any], counters: SyncCounters
-) -> JiraIssue:
-    """Upsert one issue's core row and return it (so callers have its id)."""
+) -> JiraIssue | None:
+    """Upsert one issue's core row and return it (so callers have its id).
+
+    Returns None if the row exists but could not be read back, so the caller
+    can skip this issue rather than crash the run.
+    """
     fields = issue.get("fields") or {}
     resolution = fields.get("resolution") or {}
 
@@ -297,6 +317,7 @@ async def ingest_issues_for_team(
         logger.info("issue sync | team=%s mode=%s jql=%s", team.key, mode, query)
         max_updated: datetime | None = None
         links: list[LinkRef] = []
+        issue_link_rows: list[IssueLinkRef] = []
         async for issue in jira.issues.iter_search(
             query,
             page_size=settings.jira_page_size,
@@ -305,15 +326,31 @@ async def ingest_issues_for_team(
         ):
             ctx.counters.add(fetched=1)
             row = await _upsert_issue(team, issue, ctx.counters)
+            if row is None:
+                # The row exists but could not be read back; skip it this run
+                # (it will be retried next run) rather than failing the team.
+                ctx.counters.add(failed=1)
+                logger.warning(
+                    "skipped issue %s: row exists but could not be resolved",
+                    issue.get("key"),
+                )
+                continue
             histories = await _load_histories(jira, issue)
             await _ingest_changelog(row.id, ctx.run.id, ctx.counters, histories)
             await ingest_sprint_membership(issue, row, histories, ctx.counters)
+            await ingest_attachments(issue, row.id, ctx.counters)
+            await ingest_labels(issue, row.id, ctx.counters)
+            await ingest_components(team, issue, row.id, ctx.counters)
+            await ingest_comments(jira, issue, row.id, ctx.counters)
+            await ingest_worklogs(jira, issue, row.id, ctx.counters)
+            collect_issue_links(issue, issue_link_rows)
             links.append((str(issue["id"]), _parent_ref(issue), _epic_ref(issue)))
             updated = row.jira_updated_at
             if updated is not None and (max_updated is None or updated > max_updated):
                 max_updated = updated
 
         await _apply_links(links)
+        await apply_issue_links(issue_link_rows, ctx.counters)
 
         # Advance the watermark only after a clean pass over every page.
         status = (

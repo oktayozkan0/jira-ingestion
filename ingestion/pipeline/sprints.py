@@ -44,7 +44,7 @@ async def _upsert_sprint(
     team: TrackedJiraTeam,
     payload: dict[str, Any],
     counters: SyncCounters,
-) -> JiraSprint:
+) -> JiraSprint | None:
     sprint, _ = await upsert(
         JiraSprint,
         natural_key={"jira_sprint_id": int(payload["id"])},
@@ -95,5 +95,6 @@ async def ingest_sprints_for_team(
                     int(payload["id"]),
                     partial(_upsert_sprint, board, team, payload, ctx.counters),
                 )
-                sprints.append(sprint)
+                if sprint is not None:
+                    sprints.append(sprint)
     return sprints

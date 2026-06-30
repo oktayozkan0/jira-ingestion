@@ -47,7 +47,7 @@ async def _iter_team_boards(
 
 async def _upsert_board(
     team: TrackedJiraTeam, payload: dict[str, Any], counters: SyncCounters
-) -> JiraBoard:
+) -> JiraBoard | None:
     board, _ = await upsert(
         JiraBoard,
         natural_key={"jira_board_id": int(payload["id"])},
@@ -82,5 +82,6 @@ async def ingest_boards_for_team(
                 int(payload["id"]),
                 partial(_upsert_board, team, payload, ctx.counters),
             )
-            boards.append(board)
+            if board is not None:
+                boards.append(board)
     return boards

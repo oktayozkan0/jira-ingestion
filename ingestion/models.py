@@ -8,10 +8,11 @@ Schema generation is never invoked against this database.
 
 Design notes:
 
-* Only the entities needed for Delivery 360 sprint-metric ingestion are mapped
-  (dimensions, boards, sprints, issues, sprint membership, issue field changes)
-  plus the sync bookkeeping tables. Worklogs, comments, links, snapshots and the
-  pre-computed metric tables are out of scope for this routine.
+* The mapped entities cover dimensions, boards, sprints, issues, sprint
+  membership, issue field changes, and the issue sub-entities (comments,
+  worklogs, attachments, links, labels, components), plus the sync bookkeeping
+  tables. Snapshots and the pre-computed metric tables are out of scope for
+  this routine.
 * Foreign keys are mapped as plain integer columns (``*_id``) rather than
   Tortoise relational fields. Ingestion resolves a related row, reads its ``id``
   and assigns the integer — relational navigation is not needed here and this
@@ -200,6 +201,116 @@ class JiraIssueFieldChange(Model):
     class Meta:  # type: ignore
         table = "jira_issue_field_changes"
         unique_together = (("issue_id", "jira_changelog_id", "field_name"),)
+
+
+# --- Issue sub-entities ----------------------------------------------------
+
+
+class JiraLabel(Model):
+    id = fields.IntField(pk=True)
+    name = fields.CharField(max_length=128, unique=True)
+
+    class Meta:  # type: ignore
+        table = "jira_labels"
+
+
+class JiraComponent(Model):
+    id = fields.IntField(pk=True)
+    team_id = fields.IntField(index=True)
+    jira_component_id = fields.CharField(max_length=64, unique=True)
+    name = fields.CharField(max_length=255)
+    description = fields.TextField(null=True)
+    raw_payload = fields.JSONField(null=True)  # type: ignore[var-annotated]
+
+    class Meta:  # type: ignore
+        table = "jira_components"
+
+
+class JiraWorklog(Model):
+    id = fields.IntField(pk=True)
+    jira_worklog_id = fields.CharField(max_length=64, unique=True)
+    issue_id = fields.IntField(index=True)
+    author_id = fields.IntField(null=True)
+    time_spent_seconds = fields.IntField()
+    comment = fields.TextField(null=True)
+    started_at = fields.DatetimeField()
+    jira_created_at = fields.DatetimeField()
+    jira_updated_at = fields.DatetimeField()
+    is_deleted = fields.BooleanField(default=False)
+    deleted_at = fields.DatetimeField(null=True)
+    raw_payload = fields.JSONField(null=True)  # type: ignore[var-annotated]
+
+    class Meta:  # type: ignore
+        table = "jira_worklogs"
+
+
+class JiraComment(Model):
+    id = fields.IntField(pk=True)
+    jira_comment_id = fields.CharField(max_length=64, unique=True)
+    issue_id = fields.IntField(index=True)
+    author_id = fields.IntField(null=True)
+    body = fields.TextField(null=True)
+    jira_created_at = fields.DatetimeField()
+    jira_updated_at = fields.DatetimeField()
+    is_deleted = fields.BooleanField(default=False)
+    deleted_at = fields.DatetimeField(null=True)
+    raw_payload = fields.JSONField(null=True)  # type: ignore[var-annotated]
+
+    class Meta:  # type: ignore
+        table = "jira_comments"
+
+
+class JiraAttachment(Model):
+    id = fields.IntField(pk=True)
+    jira_attachment_id = fields.CharField(max_length=64, unique=True)
+    issue_id = fields.IntField(index=True)
+    author_id = fields.IntField(null=True)
+    filename = fields.CharField(max_length=500)
+    size_bytes = fields.IntField(null=True)
+    mime_type = fields.CharField(max_length=255, null=True)
+    jira_created_at = fields.DatetimeField()
+    is_deleted = fields.BooleanField(default=False)
+    deleted_at = fields.DatetimeField(null=True)
+
+    class Meta:  # type: ignore
+        table = "jira_attachments"
+
+
+class JiraIssueLink(Model):
+    id = fields.IntField(pk=True)
+    jira_link_id = fields.CharField(max_length=64, unique=True)
+    source_issue_id = fields.IntField(index=True)
+    target_issue_id = fields.IntField(index=True)
+    link_type_name = fields.CharField(max_length=128)
+    link_direction = fields.CharField(max_length=16)
+    is_deleted = fields.BooleanField(default=False)
+    deleted_at = fields.DatetimeField(null=True)
+
+    class Meta:  # type: ignore
+        table = "jira_issue_links"
+        unique_together = (
+            ("source_issue_id", "target_issue_id", "link_type_name", "link_direction"),
+        )
+
+
+class JiraIssueLabel(Model):
+    id = fields.IntField(pk=True)
+    issue_id = fields.IntField(index=True)
+    label_id = fields.IntField(index=True)
+
+    class Meta:  # type: ignore
+        table = "jira_issue_labels"
+        unique_together = (("issue_id", "label_id"),)
+
+
+class JiraIssueComponent(Model):
+    id = fields.IntField(pk=True)
+    issue_id = fields.IntField(index=True)
+    component_id = fields.IntField(index=True)
+
+    class Meta:  # type: ignore
+        table = "jira_issue_components"
+        unique_together = (("issue_id", "component_id"),)
 
 
 # --- Sync metadata ---------------------------------------------------------

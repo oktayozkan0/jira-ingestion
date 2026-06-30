@@ -32,3 +32,30 @@ def parse_jira_date(value: str | None) -> date | None:
         return date.fromisoformat(value.strip()[:10])
     except ValueError:
         return None
+
+
+def adf_to_text(value: object) -> str | None:
+    """Flatten an Atlassian Document Format body to plain text.
+
+    Comment and worklog bodies come as ADF (a nested ``{type, content}`` tree).
+    We collect the text from every ``text`` node; a plain string is returned
+    as-is. Returns None for empty/missing content.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value or None
+    parts: list[str] = []
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "text" and node.get("text"):
+                parts.append(str(node["text"]))
+            walk(node.get("content"))
+        elif isinstance(node, list):
+            for child in node:
+                walk(child)
+
+    walk(value)
+    text = " ".join(parts).strip()
+    return text or None

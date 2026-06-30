@@ -23,7 +23,7 @@ from ingestion.sync.counters import SyncCounters
 
 async def _upsert_issue_type(
     payload: dict[str, Any], counters: SyncCounters | None
-) -> int:
+) -> int | None:
     obj, _ = await upsert(
         JiraIssueType,
         natural_key={"jira_issue_type_id": str(payload["id"])},
@@ -34,12 +34,12 @@ async def _upsert_issue_type(
         },
         counters=counters,
     )
-    return obj.id
+    return obj.id if obj is not None else None
 
 
 async def _upsert_status(
     payload: dict[str, Any], counters: SyncCounters | None
-) -> int:
+) -> int | None:
     category = payload.get("statusCategory") or {}
     obj, _ = await upsert(
         JiraStatus,
@@ -51,12 +51,12 @@ async def _upsert_status(
         },
         counters=counters,
     )
-    return obj.id
+    return obj.id if obj is not None else None
 
 
 async def _upsert_priority(
     payload: dict[str, Any], counters: SyncCounters | None
-) -> int:
+) -> int | None:
     obj, _ = await upsert(
         JiraPriority,
         natural_key={"jira_priority_id": str(payload["id"])},
@@ -66,7 +66,7 @@ async def _upsert_priority(
         },
         counters=counters,
     )
-    return obj.id
+    return obj.id if obj is not None else None
 
 
 async def resolve_issue_type(

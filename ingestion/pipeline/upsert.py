@@ -24,7 +24,7 @@ async def upsert(
     values: dict[str, Any],
     create_only: dict[str, Any] | None = None,
     counters: SyncCounters | None = None,
-) -> tuple[ModelT, bool]:
+) -> tuple[ModelT | None, bool]:
     """Create or update ``model`` identified by ``natural_key``.
 
     ``values`` are compared against the stored row and written back only when
@@ -33,15 +33,17 @@ async def upsert(
     ``source_sync_run_id`` that would otherwise flag every row as changed each
     run merely because the run id moved.
 
-    The lookup-then-insert is not atomic, so if the row appears between the two
-    (a different connection's committed insert the initial read missed, or the
-    same key reached twice in one run) the insert hits the unique constraint. We
-    catch that, re-fetch by the natural key, and fall through to the update path
-    — the same race-tolerant pattern the main app's ``get_or_create`` uses.
+    The lookup-then-insert is not atomic, and on some databases the initial read
+    does not always see a row another connection just committed. So a duplicate
+    insert is caught: the row is re-fetched and, if found, taken down the update
+    path. If it still cannot be read, this returns ``(None, False)`` rather than
+    crashing the run — callers treat a ``None`` instance as an unresolved
+    reference (a null foreign key, or a skipped row) and carry on. Non-unique
+    integrity errors (FK, NOT NULL, ...) are re-raised.
 
-    Returns ``(instance, created)``. When ``counters`` is provided, ``created``
-    is incremented on insert and ``updated`` only when at least one ``values``
-    field differed from the stored row.
+    Returns ``(instance_or_None, created)``. When ``counters`` is provided,
+    ``created`` is incremented on insert and ``updated`` only when at least one
+    ``values`` field differed from the stored row.
     """
     instance = await model.get_or_none(**natural_key)
 
@@ -50,11 +52,16 @@ async def upsert(
             instance = await model.create(
                 **natural_key, **values, **(create_only or {})
             )
-        except IntegrityError:
+        except IntegrityError as exc:
+            if not _is_unique_violation(exc):
+                # A different constraint (FK, NOT NULL, ...) — surface it.
+                raise
+            # The key exists but our read missed it. Re-read; if it still can't
+            # be seen, degrade to (None, False) rather than crashing the run.
             instance = await model.get_or_none(**natural_key)
             if instance is None:
-                # The conflict was on a different constraint, not this key.
-                raise
+                return None, False
+            # fall through to the update path with the row we found
         else:
             if counters is not None:
                 counters.add(created=1)

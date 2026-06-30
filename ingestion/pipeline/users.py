@@ -24,7 +24,7 @@ def _primary_avatar(payload: dict[str, Any]) -> str | None:
 
 async def _upsert_user(
     payload: dict[str, Any], counters: SyncCounters | None
-) -> JiraUser:
+) -> JiraUser | None:
     user, _ = await upsert(
         JiraUser,
         natural_key={"account_id": payload["accountId"]},

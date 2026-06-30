@@ -92,6 +92,39 @@ class Issues:
             params={"startAt": start_at, "maxResults": max_results},
         )
 
+    async def comments(
+            self,
+            issue_id_or_key: str,
+            *,
+            start_at: int = 0,
+            max_results: int = 100,
+    ) -> dict[str, Any]:
+        """A page of an issue's comments (`/rest/api/3/issue/{key}/comment`)."""
+        return await self.jira._get(
+            f"/rest/api/3/issue/{issue_id_or_key}/comment",
+            params={"startAt": start_at, "maxResults": max_results},
+        )
+
+    async def iter_comments(
+            self,
+            issue_id_or_key: str,
+            *,
+            page_size: int = 100,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Stream every comment on an issue, used when the embedded subset is truncated."""
+        start_at = 0
+        while True:
+            page = await self.comments(
+                issue_id_or_key, start_at=start_at, max_results=page_size
+            )
+            values = page.get("comments") or []
+            for comment in values:
+                yield comment
+            total = page.get("total")
+            start_at += len(values)
+            if not values or (total is not None and start_at >= total):
+                return
+
     async def iter_changelog(
             self,
             issue_id_or_key: str,
